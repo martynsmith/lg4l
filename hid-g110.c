@@ -198,7 +198,7 @@ static void g110_led_set(struct led_classdev *led_cdev,
 	/* Get the underlying data value */
 	data = hid_get_g110data(hdev);
 
-	mask = 0x80>>led_num;
+	mask = 0x01<<led_num;
 	if (value)
 		data->led |= mask;
 	else

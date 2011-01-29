@@ -16,7 +16,6 @@
  *   You should have received a copy of the GNU General Public License     *
  *   along with this software. If not see <http://www.gnu.org/licenses/>.  *
  ***************************************************************************/
-#include <linux/fb.h>
 #include <linux/hid.h>
 #include <linux/init.h>
 #include <linux/input.h>
@@ -30,8 +29,6 @@
 
 #include "hid-ids.h"
 #include "usbhid/usbhid.h"
-
-#include "hid-gfb.h"
 
 #define G110_NAME "Logitech G110"
 
@@ -162,14 +159,6 @@ static const unsigned int g110_default_key_map[G110_KEYS] = {
   KEY_FORWARD, KEY_BACK, KEY_MENU, KEY_OK,
   KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP,
 };
-
-
-static DEVICE_ATTR(fb_node, 0444, gfb_fb_node_show, NULL);
-
-static DEVICE_ATTR(fb_update_rate, 0666,
-		   gfb_fb_update_rate_show,
-		   gfb_fb_update_rate_store);
-
 
 static void g110_led_send(struct hid_device *hdev)
 {
@@ -811,8 +800,6 @@ static struct attribute *g110_attrs[] = {
 	&dev_attr_keymap_switching.attr,
 	&dev_attr_keymap.attr,
 	&dev_attr_minor.attr,
-	&dev_attr_fb_update_rate.attr,
-	&dev_attr_fb_node.attr,
 	NULL,	 /* need to NULL terminate the list of attributes */
 };
 
@@ -1218,12 +1205,6 @@ static int g110_probe(struct hid_device *hdev,
 		}
 	}
 
-	data->gfb_data = gfb_probe(hdev, GFB_PANEL_TYPE_320_240_16);
-	if (data->gfb_data == NULL) {
-		dev_err(&hdev->dev, G110_NAME " error registering framebuffer\n", i);
-		goto err_cleanup_registered_leds;
-	}
-
 	dbg_hid("Waiting for G110 to activate\n");
 
 	/* Add the sysfs attributes */
@@ -1368,8 +1349,6 @@ static void g110_remove(struct hid_device *hdev)
 		kfree(data->led_cdev[i]->name);
 		kfree(data->led_cdev[i]);
 	}
-
-	gfb_remove(data->gfb_data);
 
 	usb_free_urb(data->ep1_urb);
 

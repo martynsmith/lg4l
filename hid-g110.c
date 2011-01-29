@@ -267,9 +267,38 @@ static void g110_rgb_send(struct hid_device *hdev)
 {
 	struct g110_data *data = hid_get_g110data(hdev);
 
-	data->backlight_report->field[0]->value[0] = data->rgb[0];
-	data->backlight_report->field[0]->value[1] = data->rgb[1];
-	data->backlight_report->field[0]->value[2] = data->rgb[2];
+    /*
+     * Unlike the other keyboards, the G110 only has 2 LED backlights (red and
+     * blue). Rather than just setting intensity on each, the keyboard instead
+     * has a single intensity value, and a second value to specify how red/blue
+     * the backlight should be. This weird logic converts the two intensity
+     * values from the user into an intensity/colour value suitable for the
+     * keyboard.
+     *
+     * Additionally, the intensity is only valid from 0x00 - 0x0f (rather than
+     * 0x00 - 0xff). I decided to keep accepting 0x00 - 0xff as input, and I
+     * just >>4 to make it fit.
+     */
+
+    // These are just always zero from what I can tell
+	data->backlight_report->field[0]->value[1] = 0x00;
+	data->backlight_report->field[0]->value[2] = 0x00;
+
+    // If the intensities are the same, "colour" is 0x80
+    if ( data->rgb[0] == data->rgb[2] ) {
+        data->backlight_report->field[0]->value[0] = 0x80;
+        data->backlight_report->field[1]->value[0] = data->rgb[0]>>4;
+    }
+    // If the blue value is higher
+    else if ( data->rgb[2] > data->rgb[0] ) {
+        data->backlight_report->field[0]->value[0] = 0xff - ( 0x80 * data->rgb[0] ) / data->rgb[2];
+        data->backlight_report->field[1]->value[0] = data->rgb[2]>>4;
+    }
+    // If the red value is higher
+    else {
+        data->backlight_report->field[0]->value[0] = 0x00 - ( 0x80 * data->rgb[2] ) / data->rgb[0];
+        data->backlight_report->field[1]->value[0] = data->rgb[0]>>4;
+    }
 
 	usbhid_submit_report(hdev, data->backlight_report, USB_DIR_OUT);
 }
@@ -1117,11 +1146,11 @@ static int g110_probe(struct hid_device *hdev,
 		switch (report->id) {
 		case 0x03:
 			data->feature_report_4 = report;
-			data->led_report = report;
 			data->start_input_report = report;
-			data->backlight_report = report;
+			data->led_report = report;
 			break;
 		case 0x07:
+			data->backlight_report = report;
 			break;
 		default:
 			break;

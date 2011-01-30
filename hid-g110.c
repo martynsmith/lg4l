@@ -38,8 +38,7 @@
 
 /* Backlight defaults */
 #define G110_DEFAULT_RED (0)
-#define G110_DEFAULT_GREEN (255)
-#define G110_DEFAULT_BLUE (0)
+#define G110_DEFAULT_BLUE (255)
 
 /* LED array indices */
 #define G110_LED_M1 0
@@ -47,8 +46,7 @@
 #define G110_LED_M3 2
 #define G110_LED_MR 3
 #define G110_LED_BL_R 4
-#define G110_LED_BL_G 5
-#define G110_LED_BL_B 6
+#define G110_LED_BL_B 5
 
 #define G110_REPORT_4_INIT	0x00
 #define G110_REPORT_4_FINALIZE	0x01
@@ -83,7 +81,7 @@ struct g110_data {
 	char *name;
 	int keycode[G110_KEYMAP_SIZE];
 	int scancode_state[G110_KEYS];
-	u8 rgb[3];
+	u8 backlight_rb[2];
 	u8 led;
 	u8 curkeymap;
 	u8 keymap_switching;
@@ -97,7 +95,7 @@ struct g110_data {
 	spinlock_t ep1_urb_lock;
 
 	/* LED stuff */
-	struct led_classdev *led_cdev[7];
+	struct led_classdev *led_cdev[6];
 
 	/* Housekeeping stuff */
 	spinlock_t lock;
@@ -274,19 +272,19 @@ static void g110_rgb_send(struct hid_device *hdev)
 	data->backlight_report->field[0]->value[2] = 0x00;
 
     // If the intensities are the same, "colour" is 0x80
-    if ( data->rgb[0] == data->rgb[2] ) {
+    if ( data->backlight_rb[0] == data->backlight_rb[1] ) {
         data->backlight_report->field[0]->value[0] = 0x80;
-        data->backlight_report->field[1]->value[0] = data->rgb[0]>>4;
+        data->backlight_report->field[1]->value[0] = data->backlight_rb[0]>>4;
     }
     // If the blue value is higher
-    else if ( data->rgb[2] > data->rgb[0] ) {
-        data->backlight_report->field[0]->value[0] = 0xff - ( 0x80 * data->rgb[0] ) / data->rgb[2];
-        data->backlight_report->field[1]->value[0] = data->rgb[2]>>4;
+    else if ( data->backlight_rb[1] > data->backlight_rb[0] ) {
+        data->backlight_report->field[0]->value[0] = 0xff - ( 0x80 * data->backlight_rb[0] ) / data->backlight_rb[1];
+        data->backlight_report->field[1]->value[0] = data->backlight_rb[1]>>4;
     }
     // If the red value is higher
     else {
-        data->backlight_report->field[0]->value[0] = 0x00 - ( 0x80 * data->rgb[2] ) / data->rgb[0];
-        data->backlight_report->field[1]->value[0] = data->rgb[0]>>4;
+        data->backlight_report->field[0]->value[0] = 0x00 - ( 0x80 * data->backlight_rb[1] ) / data->backlight_rb[0];
+        data->backlight_report->field[1]->value[0] = data->backlight_rb[0]>>4;
     }
 
 	usbhid_submit_report(hdev, data->backlight_report, USB_DIR_OUT);
@@ -309,11 +307,9 @@ static void g110_led_bl_brightness_set(struct led_classdev *led_cdev,
 	data = hid_get_g110data(hdev);
 
 	if (led_cdev == data->led_cdev[G110_LED_BL_R])
-		data->rgb[0] = value;
-	else if (led_cdev == data->led_cdev[G110_LED_BL_G])
-		data->rgb[1] = value;
+		data->backlight_rb[0] = value;
 	else if (led_cdev == data->led_cdev[G110_LED_BL_B])
-		data->rgb[2] = value;
+		data->backlight_rb[1] = value;
 
 	g110_rgb_send(hdev);
 }
@@ -334,18 +330,16 @@ static int g110_led_bl_brightness_get(struct led_classdev *led_cdev)
 	data = hid_get_g110data(hdev);
 
 	if (led_cdev == data->led_cdev[G110_LED_BL_R])
-		return data->rgb[0];
-	else if (led_cdev == data->led_cdev[G110_LED_BL_G])
-		return data->rgb[1];
+		return data->backlight_rb[0];
 	else if (led_cdev == data->led_cdev[G110_LED_BL_B])
-		return data->rgb[2];
+		return data->backlight_rb[1];
 	else
 		dev_info(dev, G110_NAME " error retrieving LED brightness\n");
 	return 0;
 }
 
 
-static const struct led_classdev g110_led_cdevs[7] = {
+static const struct led_classdev g110_led_cdevs[6] = {
 	{
 		.brightness_set		= g110_led_m1_brightness_set,
 		.brightness_get		= g110_led_brightness_get,
@@ -361,10 +355,6 @@ static const struct led_classdev g110_led_cdevs[7] = {
 	{
 		.brightness_set		= g110_led_mr_brightness_set,
 		.brightness_get		= g110_led_brightness_get,
-	},
-	{
-		.brightness_set		= g110_led_bl_brightness_set,
-		.brightness_get		= g110_led_bl_brightness_get,
 	},
 	{
 		.brightness_set		= g110_led_bl_brightness_set,
@@ -1150,7 +1140,7 @@ static int g110_probe(struct hid_device *hdev,
 	dbg_hid("Found all reports\n");
 
 	/* Create the LED structures */
-	for (i = 0; i < 7; i++) {
+	for (i = 0; i < 6; i++) {
 		data->led_cdev[i] = kzalloc(sizeof(struct led_classdev), GFP_KERNEL);
 		if (data->led_cdev[i] == NULL) {
 			dev_err(&hdev->dev, G110_NAME " error allocating memory for led %d", i);
@@ -1185,17 +1175,13 @@ static int g110_probe(struct hid_device *hdev,
 			sprintf(led_name, "g110_%d:red:bl", hdev->minor);
 			break;
 		case 5:
-			sprintf(led_name, "g110_%d:green:bl", hdev->minor);
-			break;
-		case 6:
 			sprintf(led_name, "g110_%d:blue:bl", hdev->minor);
 			break;
-
 		}
 		data->led_cdev[i]->name = led_name;
 	}
 
-	for (i = 0; i < 7; i++) {
+	for (i = 0; i < 6; i++) {
 		led_num = i;
 		error = led_classdev_register(&hdev->dev, data->led_cdev[i]);
 		if (error < 0) {
@@ -1254,9 +1240,8 @@ static int g110_probe(struct hid_device *hdev,
 	 */
 	g110_led_send(hdev);
 
-	data->rgb[0] = G110_DEFAULT_RED;
-	data->rgb[1] = G110_DEFAULT_GREEN;
-	data->rgb[2] = G110_DEFAULT_BLUE;
+	data->backlight_rb[0] = G110_DEFAULT_RED;
+	data->backlight_rb[1] = G110_DEFAULT_BLUE;
 	g110_rgb_send(hdev);
 
 	/*
@@ -1295,7 +1280,7 @@ err_cleanup_registered_leds:
 		led_classdev_unregister(data->led_cdev[i]);
 
 err_cleanup_led_structs:
-	for (i = 0; i < 7; i++) {
+	for (i = 0; i < 6; i++) {
 		if (data->led_cdev[i] != NULL) {
 			if (data->led_cdev[i]->name != NULL)
 				kfree(data->led_cdev[i]->name);
@@ -1344,7 +1329,7 @@ static void g110_remove(struct hid_device *hdev)
 	kfree(data->name);
 
 	/* Clean up the leds */
-	for (i = 0; i < 7; i++) {
+	for (i = 0; i < 6; i++) {
 		led_classdev_unregister(data->led_cdev[i]);
 		kfree(data->led_cdev[i]->name);
 		kfree(data->led_cdev[i]);

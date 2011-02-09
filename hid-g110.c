@@ -86,9 +86,6 @@ struct g110_data {
 	u8 curkeymap;
 	u8 keymap_switching;
 
-	/* Framebuffer */
-	struct gfb_data *gfb_data;
-
 	/* none standard buttons stuff */
 	u8 ep1keys[2];
 	struct urb *ep1_urb;

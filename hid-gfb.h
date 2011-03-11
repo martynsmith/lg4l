@@ -17,6 +17,7 @@ struct gfb_data {
 	struct fb_deferred_io fb_defio;
 	struct urb *fb_urb;
 	spinlock_t fb_urb_lock;
+        int fb_vbitmap_busy;
 };
 
 static ssize_t gfb_fb_node_show(struct device *dev,

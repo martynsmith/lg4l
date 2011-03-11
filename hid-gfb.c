@@ -46,8 +46,11 @@
 /* Unlock the urb so we can reuse it */
 static void gfb_fb_urb_completion(struct urb *urb)
 {
+	unsigned long irq_flags;
 	struct gfb_data *data = urb->context;
-	spin_unlock(&data->fb_urb_lock);
+        spin_lock_irqsave(&data->fb_urb_lock, irq_flags);
+        data->fb_vbitmap_busy = 0;
+	spin_unlock_irqrestore(&data->fb_urb_lock, irq_flags);
 }
 
 /* Send the current framebuffer vbitmap as an interrupt message */
@@ -60,6 +63,7 @@ static int gfb_fb_send(struct gfb_data *data)
 	struct usb_host_endpoint *ep;
 	unsigned int pipe;
 	int retval = 0;
+	unsigned long irq_flags;
 
 	/*
 	 * Try and lock the framebuffer urb to prevent access if we have
@@ -70,7 +74,8 @@ static int gfb_fb_send(struct gfb_data *data)
 	 * framebuffer deferred I/O driver to schedule the delayed update.
 	 */
 
-	if (likely(spin_trylock(&data->fb_urb_lock))) {
+        spin_lock_irqsave(&data->fb_urb_lock, irq_flags);
+	if (likely(!data->fb_vbitmap_busy)) {
 		/* Get the usb device to send the image on */
 		intf = to_usb_interface(hdev->dev.parent);
 		usb_dev = interface_to_usbdev(intf);
@@ -83,30 +88,31 @@ static int gfb_fb_send(struct gfb_data *data)
 			pipe = usb_sndbulkpipe(usb_dev, 0x02);
 			break;
 		default:
+                        spin_unlock_irqrestore(&data->fb_urb_lock, irq_flags);
 			return -EINVAL;
 		}
 
 		ep = (usb_pipein(pipe) ? usb_dev->ep_in : usb_dev->ep_out)[usb_pipeendpoint(pipe)];
 
 		if (unlikely(!ep)) {
-			spin_unlock(&data->fb_urb_lock);
+			spin_unlock_irqrestore(&data->fb_urb_lock, irq_flags);
 			return -EINVAL;
 		}
 
 		switch (data->panel_type) {
 		case GFB_PANEL_TYPE_160_43_1:
 			usb_fill_int_urb(data->fb_urb, usb_dev, pipe, data->fb_vbitmap, data->vbitmap_size,
-				 gfb_fb_urb_completion, NULL, ep->desc.bInterval);
+				 gfb_fb_urb_completion, data, ep->desc.bInterval);
 			break;
 		case GFB_PANEL_TYPE_320_240_16:
 			usb_fill_bulk_urb(data->fb_urb, usb_dev, pipe, data->fb_vbitmap, data->vbitmap_size,
-				 gfb_fb_urb_completion, NULL);
+				 gfb_fb_urb_completion, data);
 			break;
 		default:
+			spin_unlock_irqrestore(&data->fb_urb_lock, irq_flags);
 			return -EINVAL;
 		}
 
-		data->fb_urb->context = data;
 		data->fb_urb->actual_length = 0;
 
 		retval = usb_submit_urb(data->fb_urb, GFP_NOIO);
@@ -116,10 +122,15 @@ static int gfb_fb_send(struct gfb_data *data)
 			 * the urb submission failed and therefore
 			 * g19_fb_urb_completion() won't be called.
 			 */
-			spin_unlock(&data->fb_urb_lock);
+			spin_unlock_irqrestore(&data->fb_urb_lock, irq_flags);
 			return retval;
 		}
+
+                /* All succeeded - mark the softlock and unlock the spinlock */
+                data->fb_vbitmap_busy = 1;
+                spin_unlock_irqrestore(&data->fb_urb_lock, irq_flags);
 	} else {
+                spin_unlock_irqrestore(&data->fb_urb_lock, irq_flags); /* locked before if test */
 		schedule_delayed_work(&data->fb_info->deferred_work, data->fb_defio.delay);
 	}
 
@@ -500,10 +511,11 @@ static struct gfb_data *gfb_probe(struct hid_device *hdev,
 		error = -ENOMEM;
 		goto err_cleanup_fb_bitmap;
 	}
+        data->fb_vbitmap_busy = 0;
 
 	data->fb_urb = usb_alloc_urb(0, GFP_KERNEL);
 	if (data->fb_urb == NULL) {
-		dev_err(&hdev->dev, GFB_NAME ": ERROR: can't alloc vbitmap image buffer\n");
+		dev_err(&hdev->dev, GFB_NAME ": ERROR: can't alloc usb urb\n");
 		error = -ENOMEM;
 		goto err_cleanup_fb_vbitmap;
 	}
@@ -522,11 +534,13 @@ static struct gfb_data *gfb_probe(struct hid_device *hdev,
 	fb_deferred_io_init(data->fb_info);
 
 	if (register_framebuffer(data->fb_info) < 0)
-		goto err_cleanup_fb_urb;
+		goto err_cleanup_fb_deferred;
 
 	return data;
 
 
+err_cleanup_fb_deferred:
+	fb_deferred_io_cleanup(data->fb_info);
 
 err_cleanup_fb_urb:
 	usb_free_urb(data->fb_urb);

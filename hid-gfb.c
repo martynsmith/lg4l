@@ -43,6 +43,8 @@
 #define hid_get_gfbdata(hdev) \
 	((struct gfb_data *)(hid_get_drvdata(hdev)))
 
+static uint32_t pseudo_palette[16];
+
 /* Unlock the urb so we can reuse it */
 static void gfb_fb_urb_completion(struct urb *urb)
 {
@@ -274,6 +276,57 @@ static void gfb_fb_deferred_io(struct fb_info *info, struct list_head *pagelist)
 	gfb_fb_update(info->par);
 }
 
+
+/* Blame vfb.c if things go wrong in gfb_fb_setcolreg */
+
+static int gfb_fb_setcolreg(unsigned regno, unsigned red, unsigned green,
+			    unsigned blue, unsigned transp,
+			    struct fb_info *info)
+{
+	/* struct gfb_data *par = info->par; */
+
+	if (regno >= 16)
+		return 1;
+
+	/* grayscale works only partially under directcolor */
+	if (info->var.grayscale) {
+		/* grayscale = 0.30*R + 0.59*G + 0.11*B */
+		red = green = blue =
+		    (red * 77 + green * 151 + blue * 28) >> 8;
+	}
+
+	/* Truecolor has hardware independent palette */
+	if (info->fix.visual == FB_VISUAL_TRUECOLOR) {
+		u32 v;
+
+#define CNVT_TOHW(val,width) ((((val)<<(width))+0x7FFF-(val))>>16)
+		red = CNVT_TOHW(red, info->var.red.length);
+		green = CNVT_TOHW(green, info->var.green.length);
+		blue = CNVT_TOHW(blue, info->var.blue.length);
+		transp = CNVT_TOHW(transp, info->var.transp.length);
+#undef CNVT_TOHW
+
+		v = (red << info->var.red.offset) |
+		    (green << info->var.green.offset) |
+		    (blue << info->var.blue.offset) |
+		    (transp << info->var.transp.offset);
+		switch (info->var.bits_per_pixel) {
+		case 8:
+			break;
+		case 16:
+			((u32 *) (info->pseudo_palette))[regno] = v;
+			break;
+		case 24:
+		case 32:
+			((u32 *) (info->pseudo_palette))[regno] = v;
+			break;
+		}
+		return 0;
+	}
+
+	return 0;
+}
+
 /* Stub to call the system default and update the image on the gfb */
 static void gfb_fb_fillrect(struct fb_info *info,
 			    const struct fb_fillrect *rect)
@@ -320,6 +373,7 @@ static struct fb_ops gfb_ops = {
 	.owner = THIS_MODULE,
 	.fb_read = fb_sys_read,
 	.fb_write = gfb_fb_write,
+        .fb_setcolreg = gfb_fb_setcolreg,
 	.fb_fillrect  = gfb_fb_fillrect,
 	.fb_copyarea  = gfb_fb_copyarea,
 	.fb_imageblit = gfb_fb_imageblit,
@@ -489,6 +543,7 @@ static struct gfb_data *gfb_probe(struct hid_device *hdev,
 		goto err_cleanup_fb;
 	}
 
+        data->fb_info->pseudo_palette = &pseudo_palette;
 	data->fb_info->fbops = &gfb_ops;
 	data->fb_info->fix.smem_len = data->fb_info->fix.line_length * data->fb_info->var.yres;
 	data->fb_info->par = data;

@@ -47,12 +47,13 @@ static uint32_t pseudo_palette[16];
 
 /* Unlock the urb so we can reuse it */
 static void gfb_fb_urb_completion(struct urb *urb)
-{
-	unsigned long irq_flags;
-	struct gfb_data *data = urb->context;
+{ 
+        /* we need to unlock fb_vbitmap regardless of urb success status */
+        unsigned long irq_flags;
+        struct gfb_data *data = urb->context;
         spin_lock_irqsave(&data->fb_urb_lock, irq_flags);
         data->fb_vbitmap_busy = 0;
-	spin_unlock_irqrestore(&data->fb_urb_lock, irq_flags);
+        spin_unlock_irqrestore(&data->fb_urb_lock, irq_flags);
 }
 
 /* Send the current framebuffer vbitmap as an interrupt message */

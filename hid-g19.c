@@ -956,17 +956,20 @@ static void g19_initialize_keymap(struct g19_data *data)
 /* Unlock the urb so we can reuse it */
 static void g19_ep1_urb_completion(struct urb *urb)
 {
-	struct hid_device *hdev = urb->context;
-	struct g19_data *data = hid_get_g19data(hdev);
-	struct input_dev *idev = data->input_dev;
-	int i;
+        /* don't process unlinked or failed urbs */
+        if (likely(urb->status == 0)) {
+	        struct hid_device *hdev = urb->context;
+                struct g19_data *data = hid_get_g19data(hdev);
+                struct input_dev *idev = data->input_dev;
+                int i;
 
-	for (i = 0; i < 8; i++)
-		g19_handle_key_event(data, idev, 24+i, data->ep1keys[0]&(1<<i));
+                for (i = 0; i < 8; i++)
+		        g19_handle_key_event(data, idev, 24+i, data->ep1keys[0]&(1<<i));
 
-	input_sync(idev);
-
-	usb_submit_urb(urb, GFP_ATOMIC);
+                input_sync(idev);
+                
+                usb_submit_urb(urb, GFP_ATOMIC);
+        }
 }
 
 static int g19_ep1_read(struct hid_device *hdev)
@@ -1004,7 +1007,7 @@ static int g19_ep1_read(struct hid_device *hdev)
 static int g19_probe(struct hid_device *hdev,
 		     const struct hid_device_id *id)
 {
-  unsigned long irq_flags;
+        unsigned long irq_flags;
 	int error;
 	struct g19_data *data;
 	int i;
@@ -1361,7 +1364,7 @@ static void g19_remove(struct hid_device *hdev)
 
 static void g19_post_reset_start(struct hid_device *hdev)
 {
-  unsigned long irq_flags;
+        unsigned long irq_flags;
 	struct g19_data *data = hid_get_g19data(hdev);
 
 	spin_lock_irqsave(&data->lock, irq_flags);

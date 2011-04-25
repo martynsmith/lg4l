@@ -26,6 +26,7 @@
 #include <linux/vmalloc.h>
 #include <linux/leds.h>
 #include <linux/completion.h>
+#include <linux/version.h>
 
 #include "hid-ids.h"
 #include "usbhid/usbhid.h"
@@ -175,6 +176,32 @@ static DEVICE_ATTR(fb_update_rate, 0666,
 		   gfb_fb_update_rate_show,
 		   gfb_fb_update_rate_store);
 
+static int g13_input_get_keycode(struct input_dev * dev,
+                                 unsigned int scancode,
+                                 unsigned int * keycode)
+{
+	int retval;
+	
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,37)
+	
+	struct input_keymap_entry ke = {
+		.flags    = 0,
+		.len      = sizeof(scancode),
+		.index    = scancode,
+		.scancode = scancode,
+	};
+	
+	retval   = input_get_keycode(dev, &ke);
+	*keycode = ke.keycode;
+	
+#else
+	
+	retval   = input_get_keycode(dev, scancode, keycode);
+	
+#endif
+	
+	return retval;
+}
 
 static void g13_led_send(struct hid_device *hdev)
 {
@@ -447,7 +474,7 @@ static ssize_t g13_keymap_show(struct device *dev,
 	struct g13_data *data = dev_get_drvdata(dev);
 
 	for (scancode = 0; scancode < G13_KEYMAP_SIZE; scancode++) {
-		error = input_get_keycode(data->input_dev, scancode, &keycode);
+		error = g13_input_get_keycode(data->input_dev, scancode, &keycode);
 		if (error) {
 			dev_warn(dev, G13_NAME " error accessing scancode %d\n",
 				 scancode);
@@ -814,7 +841,7 @@ static void g13_handle_key_event(struct g13_data *data,
 
 	offset = G13_KEYS * data->curkeymap;
 
-	error = input_get_keycode(idev, scancode+offset, &keycode);
+	error = g13_input_get_keycode(idev, scancode+offset, &keycode);
 
 	if (unlikely(error)) {
 		dev_warn(&idev->dev, G13_NAME " error in input_get_keycode(): scancode=%d\n", scancode);

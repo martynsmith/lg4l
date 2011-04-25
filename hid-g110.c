@@ -26,6 +26,7 @@
 #include <linux/vmalloc.h>
 #include <linux/leds.h>
 #include <linux/completion.h>
+#include <linux/version.h>
 
 #include "hid-ids.h"
 #include "usbhid/usbhid.h"
@@ -154,6 +155,33 @@ static const unsigned int g110_default_key_map[G110_KEYS] = {
   KEY_FORWARD, KEY_BACK, KEY_MENU, KEY_OK,
   KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP,
 };
+
+static int g110_input_get_keycode(struct input_dev * dev,
+                                 unsigned int scancode,
+                                 unsigned int * keycode)
+{
+	int retval;
+	
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,37)
+	
+	struct input_keymap_entry ke = {
+		.flags    = 0,
+		.len      = sizeof(scancode),
+		.index    = scancode,
+		.scancode = scancode,
+	};
+	
+	retval   = input_get_keycode(dev, &ke);
+	*keycode = ke.keycode;
+	
+#else
+	
+	retval   = input_get_keycode(dev, scancode, keycode);
+	
+#endif
+	
+	return retval;
+}
 
 static void g110_led_send(struct hid_device *hdev)
 {
@@ -520,7 +548,7 @@ static ssize_t g110_keymap_show(struct device *dev,
 	struct g110_data *data = dev_get_drvdata(dev);
 
 	for (scancode = 0; scancode < G110_KEYMAP_SIZE; scancode++) {
-		error = input_get_keycode(data->input_dev, scancode, &keycode);
+		error = g110_input_get_keycode(data->input_dev, scancode, &keycode);
 		if (error) {
 			dev_warn(dev, G110_NAME " error accessing scancode %d\n",
 				 scancode);
@@ -813,7 +841,7 @@ static void g110_handle_key_event(struct g110_data *data,
 
 	offset = G110_KEYS * data->curkeymap;
 
-	error = input_get_keycode(idev, scancode+offset, &keycode);
+	error = g110_input_get_keycode(idev, scancode+offset, &keycode);
 
 	if (unlikely(error)) {
 		dev_warn(&idev->dev, G110_NAME " error in input_get_keycode(): scancode=%d\n", scancode);

@@ -30,3 +30,5 @@ After you've installed the modules you need to rebuild your initrd. The easiest 
 Additionally, if you're trying to work out what might be going wrong, enabling HID debugging is useful, simply create a file /etc/modprobe.d/hid-debug.conf with a single line in it:
 
     options hid debug=2
+
+Note: You have to update the initramfs again after changing hid options.

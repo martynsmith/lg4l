@@ -23,12 +23,12 @@ All going well, you should be able to just install your kernel headers and type
     # make
     # make install
 
-After you've installed the modules you need to rebuild your initrd. The easiest way I've found to do this (on Ubuntu) is:
+Now load the correct module for your device, eg:
 
-    # sudo update-initramfs -k all -c
+    # modprobe hid-g19
 
-Additionally, if you're trying to work out what might be going wrong, enabling HID debugging is useful, simply create a file /etc/modprobe.d/hid-debug.conf with a single line in it:
+The modules will now be available but the device will still be grabbed by generic-usb. Run the
+rebind script to put the new module in control of the device:
 
-    options hid debug=2
+    # ./rebind
 
-Note: You have to update the initramfs again after changing hid options.
